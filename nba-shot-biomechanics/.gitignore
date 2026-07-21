@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.pt
+data/*.mp4
+data/*.mov
+runs/
+.DS_Store
+.ipynb_checkpoints/
