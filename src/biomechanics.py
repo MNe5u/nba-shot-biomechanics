@@ -71,18 +71,26 @@ def torso_length(kp: np.ndarray) -> float:
 
 
 def detect_release_frame(keypoints_seq: np.ndarray, arm: str) -> int:
-    """Heuristic release frame: the frame where the shooting wrist is highest.
-
-    This is a deliberate v1 approximation. The *real* release is when the ball
-    leaves the hand — detecting that needs a ball detector, which is a great
-    PyTorch fine-tuning stretch goal (see README roadmap).
+    """Heuristic release frame: the highest wrist point, restricted to frames
+    where the wrist is above the shoulder.
     """
-    wrist = R_WRIST if arm == "right" else L_WRIST
-    ys = keypoints_seq[:, wrist, 1]
-    if np.all(np.isnan(ys)):
-        return 0
-    return int(np.nanargmin(ys))  # smallest y == highest point
+    wrist_idx = R_WRIST if arm == "right" else L_WRIST
+    shoulder_idx = R_SHOULDER if arm == "right" else L_SHOULDER
 
+    wrist_y = keypoints_seq[:, wrist_idx, 1]
+    shoulder_y = keypoints_seq[:, shoulder_idx, 1]
+
+    above_shoulder = wrist_y < shoulder_y
+    candidates = np.where(above_shoulder)[0]
+
+    if len(candidates) == 0:
+        if np.all(np.isnan(wrist_y)):
+            return 0
+        return int(np.nanargmin(wrist_y))
+
+    valid_ys = wrist_y[candidates]
+    best_local = int(np.nanargmin(valid_ys))
+    return int(candidates[best_local])
 
 def analyze(keypoints_seq: np.ndarray, arm: str | None = None) -> dict:
     """Compute shot metrics from a sequence of per-frame keypoints.
