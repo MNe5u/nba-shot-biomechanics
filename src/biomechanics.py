@@ -73,6 +73,19 @@ def torso_length(kp: np.ndarray) -> float:
 def detect_release_frame(keypoints_seq: np.ndarray, arm: str) -> int:
     """Heuristic release frame: the highest wrist point, restricted to frames
     where the wrist is above the shoulder.
+
+    v1 of this function just took the global highest wrist point across the
+    whole clip. That breaks on natural (un-trimmed) footage: a fully relaxed
+    arm hanging at the athlete's side and a fully extended arm reaching
+    overhead both read as ~180 deg of elbow extension, so a clip that
+    includes any relaxed-arm moment could get mistaken for the release.
+
+    Requiring "wrist above shoulder" rules that out structurally: a hanging
+    wrist is always below the shoulder line, regardless of elbow angle or
+    camera noise, so it can never qualify as a candidate release frame.
+
+    This is still a heuristic proxy for true release (ball leaving the hand)
+    — see the README roadmap for the ball-detector-based follow-up.
     """
     wrist_idx = R_WRIST if arm == "right" else L_WRIST
     shoulder_idx = R_SHOULDER if arm == "right" else L_SHOULDER
@@ -80,17 +93,26 @@ def detect_release_frame(keypoints_seq: np.ndarray, arm: str) -> int:
     wrist_y = keypoints_seq[:, wrist_idx, 1]
     shoulder_y = keypoints_seq[:, shoulder_idx, 1]
 
+    # Smaller y = higher in the frame, so "above" means wrist_y < shoulder_y.
     above_shoulder = wrist_y < shoulder_y
     candidates = np.where(above_shoulder)[0]
 
     if len(candidates) == 0:
+        # Nothing ever reached above the shoulder -- likely occlusion, missed
+        # detections, or footage that doesn't contain a raised-arm shot at
+        # all. Fall back to the old global-highest-wrist behaviour rather
+        # than crashing, but this case is worth checking the source clip for.
         if np.all(np.isnan(wrist_y)):
             return 0
         return int(np.nanargmin(wrist_y))
 
+    # Among qualifying (above-shoulder) frames, release is still the highest
+    # wrist point -- this handles multi-peak motion (e.g. a load/dip before
+    # the final push) by picking the true peak, not just the first qualifier.
     valid_ys = wrist_y[candidates]
     best_local = int(np.nanargmin(valid_ys))
     return int(candidates[best_local])
+
 
 def analyze(keypoints_seq: np.ndarray, arm: str | None = None) -> dict:
     """Compute shot metrics from a sequence of per-frame keypoints.

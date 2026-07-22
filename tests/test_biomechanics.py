@@ -51,9 +51,43 @@ def test_analyze_end_to_end_synthetic():
     assert len(out["elbow_angle_series"]) == T
 
 
+def test_release_ignores_relaxed_arm_after_shot():
+    """Regression test for the real bug this fix targets: a shot followed by
+    the arm relaxing back down to the athlete's side must NOT be mistaken
+    for a second, higher-scoring release -- even though a straight relaxed
+    arm and a straight raised arm can have a near-identical elbow angle.
+    """
+    T = 30
+    kps = np.zeros((T, 17, 2))
+    shoulder_y = 100.0
+    for t in range(T):
+        kps[t, 6] = [100, shoulder_y]  # R shoulder fixed
+        if t < 10:
+            # Rising toward release: wrist goes from below to above shoulder.
+            wrist_y = shoulder_y - (t * 8.0)
+        elif t < 15:
+            # True release + a brief follow-through hold near the peak.
+            wrist_y = shoulder_y - 80.0
+        else:
+            # Arm relaxes back down to the athlete's side, well BELOW the
+            # shoulder -- this is the part that used to fool the heuristic
+            # if noise made it briefly read as "straight".
+            wrist_y = shoulder_y + 60.0 + (t - 15) * 2.0
+        kps[t, 8] = [110, (shoulder_y + wrist_y) / 2]  # elbow, roughly between
+        kps[t, 10] = [120, wrist_y]
+
+    out = analyze(kps, arm="right")
+    # Release must land in the true 10-14 window (above shoulder), never in
+    # the relaxed-arm tail even if some frame there has a near-straight angle.
+    assert 9 <= out["release_frame"] <= 14
+    assert out["release_frame"] < 15
+
+
 if __name__ == "__main__":
     test_right_angle()
     test_straight_arm_is_180()
     test_launch_angle_45_degrees_up()
     test_analyze_end_to_end_synthetic()
+    test_release_ignores_relaxed_arm_after_shot()
     print("All synthetic biomechanics tests passed.")
+
